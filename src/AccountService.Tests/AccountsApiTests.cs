@@ -5,28 +5,28 @@ namespace AccountService.Tests;
 
 public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<AccountServiceApiFactory>
 {
-    private readonly HttpClient _client = factory.CreateClient();
-
     [Fact]
     public async Task GetMyAccount_CreatesProfileFromClaims()
     {
-        var response = await _client.GetAsync("/accounts/me");
+        using var client = CreateClientForUser("get-profile-user", name: "Get Profile User");
+        var response = await client.GetAsync("/accounts/me");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var profile = await response.Content.ReadFromJsonAsync<AccountProfileResponse>();
         Assert.NotNull(profile);
-        Assert.Equal("integration-test-user", profile!.Id);
-        Assert.Equal("integration-test-user", profile.Username);
-        Assert.Equal("integration-test-user@shopisel.test", profile.Email);
-        Assert.Equal("Integration Test User", profile.FullName);
+        Assert.Equal("get-profile-user", profile!.Id);
+        Assert.Equal("get-profile-user", profile.Username);
+        Assert.Equal("get-profile-user@shopisel.test", profile.Email);
+        Assert.Equal("Get Profile User", profile.FullName);
         Assert.Equal(5m, profile.ShoppingRadiusKm);
     }
 
     [Fact]
     public async Task UpdateMyAccount_PersistsCustomPreferences()
     {
-        var updateResponse = await _client.PutAsJsonAsync("/accounts/me", new
+        using var client = CreateClientForUser("update-profile-user");
+        var updateResponse = await client.PutAsJsonAsync("/accounts/me", new
         {
             displayName = "Martim",
             preferredStoreId = "continente-colombo",
@@ -41,7 +41,7 @@ public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<
         Assert.Equal("continente-colombo", updated.PreferredStoreId);
         Assert.Equal(12.5m, updated.ShoppingRadiusKm);
 
-        var getResponse = await _client.GetAsync("/accounts/me");
+        var getResponse = await client.GetAsync("/accounts/me");
         var fetched = await getResponse.Content.ReadFromJsonAsync<AccountProfileResponse>();
 
         Assert.NotNull(fetched);
@@ -53,7 +53,8 @@ public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<
     [Fact]
     public async Task Profiles_AreIsolatedPerAuthenticatedUser()
     {
-        var firstUpdate = await _client.PutAsJsonAsync("/accounts/me", new
+        using var client = CreateClientForUser("main-user");
+        var firstUpdate = await client.PutAsJsonAsync("/accounts/me", new
         {
             displayName = "Main User",
             preferredStoreId = "store-a",
@@ -62,11 +63,7 @@ public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<
 
         Assert.Equal(HttpStatusCode.OK, firstUpdate.StatusCode);
 
-        using var otherUserClient = factory.CreateClient();
-        otherUserClient.DefaultRequestHeaders.Add("X-Test-User", "other-user");
-        otherUserClient.DefaultRequestHeaders.Add("X-Test-Username", "other.username");
-        otherUserClient.DefaultRequestHeaders.Add("X-Test-Email", "other@shopisel.test");
-        otherUserClient.DefaultRequestHeaders.Add("X-Test-Name", "Other User");
+        using var otherUserClient = CreateClientForUser("other-user", "other.username", "other@shopisel.test", "Other User");
 
         var otherResponse = await otherUserClient.GetAsync("/accounts/me");
         Assert.Equal(HttpStatusCode.OK, otherResponse.StatusCode);
@@ -82,12 +79,27 @@ public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<
     [Fact]
     public async Task UpdateMyAccount_WithInvalidRadius_ReturnsValidationProblem()
     {
-        var response = await _client.PutAsJsonAsync("/accounts/me", new
+        using var client = CreateClientForUser("invalid-radius-user");
+        var response = await client.PutAsJsonAsync("/accounts/me", new
         {
             shoppingRadiusKm = -1m
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private HttpClient CreateClientForUser(
+        string userId,
+        string? username = null,
+        string? email = null,
+        string? name = null)
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", userId);
+        client.DefaultRequestHeaders.Add("X-Test-Username", username ?? userId);
+        client.DefaultRequestHeaders.Add("X-Test-Email", email ?? $"{userId}@shopisel.test");
+        client.DefaultRequestHeaders.Add("X-Test-Name", name ?? userId);
+        return client;
     }
 
     private sealed record AccountProfileResponse(
