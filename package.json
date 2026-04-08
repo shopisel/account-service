@@ -1,0 +1,6 @@
+{
+  "name": "account-service",
+  "version": "1.0.0",
+  "description": "Support files for account-service workflows",
+  "license": "MIT"
+}
