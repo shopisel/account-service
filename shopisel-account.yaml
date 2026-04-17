@@ -1,0 +1,89 @@
+openapi: 3.0.0
+info:
+  title: Shopisel API Account Service
+  version: 1.0.0
+  description: API de Gestão de Conta e Produtos Favoritos.
+
+servers:
+  - url: http://localhost:5003
+
+paths:
+  /accounts/me/sync:
+    post:
+      summary: Regista a conta do utilizador a partir do token
+      description: Garante que a conta associada ao token existe na base de dados (utilizado no login)
+      tags: [Account]
+      responses:
+        '200':
+          description: Conta sincronizada/existente
+        '401':
+          description: Não autorizado
+
+  /accounts/me/favorites:
+    get:
+      summary: Obter lista de produtos favoritos
+      tags: [Account]
+      responses:
+        '200':
+          description: Retorna a lista de produtos favoritos do utilizador autenticado
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FavoriteProductResponse'
+        '401':
+          description: Não autorizado
+
+    post:
+      summary: Adicionar produto aos favoritos
+      tags: [Account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FavoriteProductRequest'
+      responses:
+        '200':
+          description: Produto adicionado com sucesso
+        '400':
+          description: Dados inválidos (ex. ProductId vazio)
+        '401':
+          description: Não autorizado
+
+  /accounts/me/favorites/{productId}:
+    delete:
+      summary: Remover produto dos favoritos
+      tags: [Account]
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Produto removido com sucesso
+        '401':
+          description: Não autorizado
+        '404':
+          description: Produto não encontrado nos favoritos
+
+components:
+  schemas:
+    FavoriteProductRequest:
+      type: object
+      required: [productId]
+      properties:
+        productId:
+          type: string
+          description: ID do Produto
+
+    FavoriteProductResponse:
+      type: object
+      required: [productId]
+      properties:
+        productId:
+          type: string
+          description: ID do Produto

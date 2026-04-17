@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using AccountService.Contracts;
 using AccountService.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -13,49 +14,89 @@ public static class AccountEndpoints
             .WithTags("Account")
             .RequireAuthorization();
 
-        accounts.MapGet("/me", async (
-            IAccountProfileService accountProfileService,
+        accounts.MapPost("/me/sync", async (
+            IAccountService accountService,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
-            var account = AuthenticatedAccountContext.FromClaimsPrincipal(httpContext.User);
-            if (account is null)
+            var accountId = GetAccountId(httpContext.User);
+            if (accountId is null)
             {
                 return Results.Unauthorized();
             }
 
-            var profile = await accountProfileService.GetOrCreateAsync(account, ct);
-            return Results.Ok(profile);
+            await accountService.EnsureAccountExistsAsync(accountId, ct);
+            return Results.Ok();
         })
-        .WithName("GetMyAccount")
-        .WithSummary("Obter perfil do utilizador autenticado");
+        .WithName("SyncMyAccount")
+        .WithSummary("Garante que a conta associada ao token existe na base de dados (utilizado no login)");
 
-        accounts.MapPut("/me", async (
-            [FromBody] UpdateAccountProfileRequest request,
-            IAccountProfileService accountProfileService,
+        accounts.MapGet("/me/favorites", async (
+            IAccountService accountService,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
-            try
+            var accountId = GetAccountId(httpContext.User);
+            if (accountId is null)
             {
-                var account = AuthenticatedAccountContext.FromClaimsPrincipal(httpContext.User);
-                if (account is null)
-                {
-                    return Results.Unauthorized();
-                }
+                return Results.Unauthorized();
+            }
 
-                var profile = await accountProfileService.UpdateAsync(account, request, ct);
-                return Results.Ok(profile);
-            }
-            catch (ArgumentException ex)
-            {
-                return Results.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    [ex.ParamName ?? "error"] = [ex.Message]
-                });
-            }
+            var favorites = await accountService.GetFavoritesAsync(accountId, ct);
+            return Results.Ok(favorites);
         })
-        .WithName("UpdateMyAccount")
-        .WithSummary("Atualizar preferencias do perfil autenticado");
+        .WithName("GetMyFavorites")
+        .WithSummary("Obter produtos favoritos do utilizador autenticado");
+
+        accounts.MapPost("/me/favorites", async (
+            [FromBody] FavoriteProductRequest request,
+            IAccountService accountService,
+            HttpContext httpContext,
+            CancellationToken ct) =>
+        {
+            var accountId = GetAccountId(httpContext.User);
+            if (accountId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            if (string.IsNullOrWhiteSpace(request.ProductId))
+            {
+                return Results.BadRequest(new { error = "ProductId cannot be empty." });
+            }
+
+            await accountService.AddFavoriteAsync(accountId, request.ProductId, ct);
+            return Results.Ok();
+        })
+        .WithName("AddFavoriteProduct")
+        .WithSummary("Adicionar um produto aos favoritos");
+
+        accounts.MapDelete("/me/favorites/{productId}", async (
+            string productId,
+            IAccountService accountService,
+            HttpContext httpContext,
+            CancellationToken ct) =>
+        {
+            var accountId = GetAccountId(httpContext.User);
+            if (accountId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var removed = await accountService.RemoveFavoriteAsync(accountId, productId, ct);
+            if (removed)
+            {
+                return Results.NoContent();
+            }
+            
+            return Results.NotFound();
+        })
+        .WithName("RemoveFavoriteProduct")
+        .WithSummary("Remover um produto dos favoritos");
+
+        static string? GetAccountId(ClaimsPrincipal principal)
+        {
+            return principal.FindFirst("sub")?.Value;
+        }
     }
 }
