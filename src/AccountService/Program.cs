@@ -73,7 +73,7 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddScoped<IAccountProfileService, AccountProfileService>();
+builder.Services.AddScoped<IAccountService, AccountService.Services.AccountService>();
 
 var app = builder.Build();
 
@@ -96,6 +96,12 @@ static async Task InitializeDatabaseAsync(WebApplication application)
 {
     using var scope = application.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AccountServiceDbContext>();
+    if (dbContext.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true)
+    {
+        await dbContext.Database.MigrateAsync();
+        return;
+    }
+
     await dbContext.Database.EnsureCreatedAsync();
 }
 

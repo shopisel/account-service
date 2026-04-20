@@ -6,22 +6,41 @@ namespace AccountService.Data;
 public sealed class AccountServiceDbContext(DbContextOptions<AccountServiceDbContext> options)
     : DbContext(options)
 {
-    public DbSet<AccountProfile> Profiles => Set<AccountProfile>();
+    public DbSet<AccountEntity> Accounts => Set<AccountEntity>();
+    public DbSet<FavoriteProductEntity> FavoriteProducts => Set<FavoriteProductEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        var profile = modelBuilder.Entity<AccountProfile>();
+        modelBuilder.Entity<AccountEntity>(entity =>
+        {
+            entity.ToTable("accounts");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id)
+                .HasColumnName("id")
+                .HasColumnType("varchar(128)");
+        });
 
-        profile.ToTable("account_profiles");
-        profile.HasKey(x => x.Id);
-        profile.Property(x => x.Id).HasMaxLength(128);
-        profile.Property(x => x.Username).HasMaxLength(128).IsRequired();
-        profile.Property(x => x.Email).HasMaxLength(256);
-        profile.Property(x => x.FullName).HasMaxLength(256);
-        profile.Property(x => x.DisplayName).HasMaxLength(128);
-        profile.Property(x => x.PreferredStoreId).HasMaxLength(128);
-        profile.Property(x => x.ShoppingRadiusKm).HasPrecision(10, 2);
-        profile.Property(x => x.CreatedAt).IsRequired();
-        profile.Property(x => x.UpdatedAt).IsRequired();
+        modelBuilder.Entity<FavoriteProductEntity>(entity =>
+        {
+            entity.ToTable("favorite_products");
+            
+            // Composite primary key
+            entity.HasKey(x => new { x.AccountId, x.ProductId });
+
+            entity.Property(x => x.AccountId)
+                .HasColumnName("account_id")
+                .HasColumnType("varchar(128)")
+                .IsRequired();
+
+            entity.Property(x => x.ProductId)
+                .HasColumnName("product_id")
+                .HasColumnType("varchar(128)")
+                .IsRequired();
+
+            entity.HasOne(x => x.Account)
+                .WithMany()
+                .HasForeignKey(x => x.AccountId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 }
