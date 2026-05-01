@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using AccountService.Data;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 
 namespace AccountService.Tests;
 
@@ -70,6 +73,43 @@ public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpsertPushToken_IsIdempotentPerDevice()
+    {
+        const string userId = "push-user";
+        using var client = CreateClientForUser(userId);
+
+        var first = await client.PostAsJsonAsync("/accounts/me/push-tokens", new
+        {
+            fcm_token = "fcm-token-1",
+            platform = "android",
+            device_id = "installation-1"
+        });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var second = await client.PostAsJsonAsync("/accounts/me/push-tokens", new
+        {
+            fcm_token = "fcm-token-2",
+            platform = "android",
+            device_id = "installation-1"
+        });
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AccountServiceDbContext>();
+
+        var tokens = await db.AccountPushTokens
+            .Where(x => x.AccountId == userId)
+            .ToListAsync();
+
+        Assert.Single(tokens);
+        Assert.Equal("fcm-token-2", tokens[0].FcmToken);
+        Assert.Equal("android", tokens[0].Platform);
+        Assert.Equal("installation-1", tokens[0].DeviceId);
+        Assert.True(tokens[0].IsActive);
+        Assert.NotNull(tokens[0].LastSeenAt);
     }
 
     private HttpClient CreateClientForUser(

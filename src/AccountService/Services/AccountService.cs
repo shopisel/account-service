@@ -64,4 +64,56 @@ public sealed class AccountService : IAccountService
 
         return false;
     }
+
+    public async Task UpsertPushTokenAsync(string accountId, PushTokenUpsertRequest request, CancellationToken ct)
+    {
+        await EnsureAccountExistsAsync(accountId, ct);
+
+        var now = DateTimeOffset.UtcNow;
+        var normalizedDeviceId = string.IsNullOrWhiteSpace(request.DeviceId)
+            ? null
+            : request.DeviceId.Trim();
+
+        AccountPushTokenEntity? existing;
+        if (normalizedDeviceId is not null)
+        {
+            existing = await _dbContext.AccountPushTokens
+                .FirstOrDefaultAsync(
+                    token => token.AccountId == accountId && token.DeviceId == normalizedDeviceId,
+                    ct);
+        }
+        else
+        {
+            existing = await _dbContext.AccountPushTokens
+                .FirstOrDefaultAsync(
+                    token => token.AccountId == accountId && token.FcmToken == request.FcmToken,
+                    ct);
+        }
+
+        if (existing is null)
+        {
+            _dbContext.AccountPushTokens.Add(new AccountPushTokenEntity
+            {
+                AccountId = accountId,
+                FcmToken = request.FcmToken.Trim(),
+                Platform = request.Platform.Trim(),
+                DeviceId = normalizedDeviceId,
+                IsActive = true,
+                LastSeenAt = now,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            existing.FcmToken = request.FcmToken.Trim();
+            existing.Platform = request.Platform.Trim();
+            existing.DeviceId = normalizedDeviceId;
+            existing.IsActive = true;
+            existing.LastSeenAt = now;
+            existing.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync(ct);
+    }
 }
