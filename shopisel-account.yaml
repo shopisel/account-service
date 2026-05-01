@@ -70,6 +70,25 @@ paths:
         '404':
           description: Produto não encontrado nos favoritos
 
+  /accounts/me/push-tokens:
+    post:
+      summary: Registar/atualizar token de push (FCM)
+      description: Associa o token FCM ao utilizador autenticado (1 conta -> N tokens/dispositivos)
+      tags: [Account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushTokenUpsertRequest'
+      responses:
+        '200':
+          description: Token registado/atualizado com sucesso
+        '400':
+          description: Dados invÃ¡lidos (ex. fcm_token vazio, platform invÃ¡lida)
+        '401':
+          description: NÃ£o autorizado
+
 components:
   schemas:
     FavoriteProductRequest:
@@ -87,3 +106,19 @@ components:
         productId:
           type: string
           description: ID do Produto
+
+    PushTokenUpsertRequest:
+      type: object
+      required: [fcm_token, platform]
+      properties:
+        fcm_token:
+          type: string
+          description: Token FCM do dispositivo/app install
+        platform:
+          type: string
+          description: Plataforma do dispositivo
+          enum: [android, ios]
+        device_id:
+          type: string
+          nullable: true
+          description: Identificador estÃ¡vel da instalaÃ§Ã£o (para upsert sem duplicar)

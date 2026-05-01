@@ -94,6 +94,44 @@ public static class AccountEndpoints
         .WithName("RemoveFavoriteProduct")
         .WithSummary("Remover um produto dos favoritos");
 
+        accounts.MapPost("/me/push-tokens", async (
+            [FromBody] PushTokenUpsertRequest request,
+            IAccountService accountService,
+            HttpContext httpContext,
+            CancellationToken ct) =>
+        {
+            var accountId = GetAccountId(httpContext.User);
+            if (accountId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            if (string.IsNullOrWhiteSpace(request.FcmToken))
+            {
+                return Results.BadRequest(new { error = "fcm_token cannot be empty." });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Platform))
+            {
+                return Results.BadRequest(new { error = "platform cannot be empty." });
+            }
+
+            var normalizedPlatform = request.Platform.Trim().ToLowerInvariant();
+            if (normalizedPlatform is not ("android" or "ios"))
+            {
+                return Results.BadRequest(new { error = "platform must be 'android' or 'ios'." });
+            }
+
+            await accountService.UpsertPushTokenAsync(
+                accountId,
+                request with { Platform = normalizedPlatform },
+                ct);
+
+            return Results.Ok();
+        })
+        .WithName("UpsertMyPushToken")
+        .WithSummary("Registar/atualizar o token de push (FCM) para a conta autenticada");
+
         static string? GetAccountId(ClaimsPrincipal principal)
         {
             return principal.FindFirst("sub")?.Value;
