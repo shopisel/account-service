@@ -1,91 +1,115 @@
 using System.Net;
 using System.Net.Http.Json;
+using AccountService.Data;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 
 namespace AccountService.Tests;
 
 public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<AccountServiceApiFactory>
 {
     [Fact]
-    public async Task GetMyAccount_CreatesProfileFromClaims()
+    public async Task SyncMyAccount_CreatesAccount()
     {
-        using var client = CreateClientForUser("get-profile-user", name: "Get Profile User");
-        var response = await client.GetAsync("/accounts/me");
+        using var client = CreateClientForUser("sync-user");
+        var response = await client.PostAsync("/accounts/me/sync", content: null);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var profile = await response.Content.ReadFromJsonAsync<AccountProfileResponse>();
-        Assert.NotNull(profile);
-        Assert.Equal("get-profile-user", profile!.Id);
-        Assert.Equal("get-profile-user", profile.Username);
-        Assert.Equal("get-profile-user@shopisel.test", profile.Email);
-        Assert.Equal("Get Profile User", profile.FullName);
-        Assert.Equal(5m, profile.ShoppingRadiusKm);
     }
 
     [Fact]
-    public async Task UpdateMyAccount_PersistsCustomPreferences()
+    public async Task AddFavorite_ThenGetFavorites_ReturnsSavedProducts()
     {
-        using var client = CreateClientForUser("update-profile-user");
-        var updateResponse = await client.PutAsJsonAsync("/accounts/me", new
-        {
-            displayName = "Martim",
-            preferredStoreId = "continente-colombo",
-            shoppingRadiusKm = 12.5m
-        });
+        using var client = CreateClientForUser("favorites-user");
+        var addResponse = await client.PostAsJsonAsync("/accounts/me/favorites", new { productId = "P-001" });
 
-        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, addResponse.StatusCode);
 
-        var updated = await updateResponse.Content.ReadFromJsonAsync<AccountProfileResponse>();
-        Assert.NotNull(updated);
-        Assert.Equal("Martim", updated!.DisplayName);
-        Assert.Equal("continente-colombo", updated.PreferredStoreId);
-        Assert.Equal(12.5m, updated.ShoppingRadiusKm);
+        var listResponse = await client.GetAsync("/accounts/me/favorites");
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
 
-        var getResponse = await client.GetAsync("/accounts/me");
-        var fetched = await getResponse.Content.ReadFromJsonAsync<AccountProfileResponse>();
-
-        Assert.NotNull(fetched);
-        Assert.Equal("Martim", fetched!.DisplayName);
-        Assert.Equal("continente-colombo", fetched.PreferredStoreId);
-        Assert.Equal(12.5m, fetched.ShoppingRadiusKm);
+        var favorites = await listResponse.Content.ReadFromJsonAsync<List<FavoriteProductResponse>>();
+        Assert.NotNull(favorites);
+        Assert.Contains(favorites!, x => x.ProductId == "P-001");
     }
 
     [Fact]
-    public async Task Profiles_AreIsolatedPerAuthenticatedUser()
+    public async Task Favorites_AreIsolatedPerAuthenticatedUser()
     {
-        using var client = CreateClientForUser("main-user");
-        var firstUpdate = await client.PutAsJsonAsync("/accounts/me", new
-        {
-            displayName = "Main User",
-            preferredStoreId = "store-a",
-            shoppingRadiusKm = 8m
-        });
+        using var mainClient = CreateClientForUser("main-user");
+        var addResponse = await mainClient.PostAsJsonAsync("/accounts/me/favorites", new { productId = "main-product" });
+        Assert.Equal(HttpStatusCode.OK, addResponse.StatusCode);
 
-        Assert.Equal(HttpStatusCode.OK, firstUpdate.StatusCode);
-
-        using var otherUserClient = CreateClientForUser("other-user", "other.username", "other@shopisel.test", "Other User");
-
-        var otherResponse = await otherUserClient.GetAsync("/accounts/me");
+        using var otherUserClient = CreateClientForUser("other-user");
+        var otherResponse = await otherUserClient.GetAsync("/accounts/me/favorites");
         Assert.Equal(HttpStatusCode.OK, otherResponse.StatusCode);
 
-        var otherProfile = await otherResponse.Content.ReadFromJsonAsync<AccountProfileResponse>();
-        Assert.NotNull(otherProfile);
-        Assert.Equal("other-user", otherProfile!.Id);
-        Assert.Equal("other.username", otherProfile.Username);
-        Assert.Null(otherProfile.DisplayName);
-        Assert.Equal(5m, otherProfile.ShoppingRadiusKm);
+        var otherFavorites = await otherResponse.Content.ReadFromJsonAsync<List<FavoriteProductResponse>>();
+        Assert.NotNull(otherFavorites);
+        Assert.DoesNotContain(otherFavorites!, x => x.ProductId == "main-product");
     }
 
     [Fact]
-    public async Task UpdateMyAccount_WithInvalidRadius_ReturnsValidationProblem()
+    public async Task RemoveFavorite_WhenExists_ReturnsNoContent_ThenNotFound()
     {
-        using var client = CreateClientForUser("invalid-radius-user");
-        var response = await client.PutAsJsonAsync("/accounts/me", new
+        using var client = CreateClientForUser("remove-user");
+        var addResponse = await client.PostAsJsonAsync("/accounts/me/favorites", new { productId = "P-REMOVE" });
+        Assert.Equal(HttpStatusCode.OK, addResponse.StatusCode);
+
+        var firstDelete = await client.DeleteAsync("/accounts/me/favorites/P-REMOVE");
+        Assert.Equal(HttpStatusCode.NoContent, firstDelete.StatusCode);
+
+        var secondDelete = await client.DeleteAsync("/accounts/me/favorites/P-REMOVE");
+        Assert.Equal(HttpStatusCode.NotFound, secondDelete.StatusCode);
+    }
+
+    [Fact]
+    public async Task AddFavorite_WithInvalidProductId_ReturnsBadRequest()
+    {
+        using var client = CreateClientForUser("invalid-product-user");
+        var response = await client.PostAsJsonAsync("/accounts/me/favorites", new
         {
-            shoppingRadiusKm = -1m
+            productId = ""
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpsertPushToken_IsIdempotentPerDevice()
+    {
+        const string userId = "push-user";
+        using var client = CreateClientForUser(userId);
+
+        var first = await client.PostAsJsonAsync("/accounts/me/push-tokens", new
+        {
+            fcm_token = "fcm-token-1",
+            platform = "android",
+            device_id = "installation-1"
+        });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var second = await client.PostAsJsonAsync("/accounts/me/push-tokens", new
+        {
+            fcm_token = "fcm-token-2",
+            platform = "android",
+            device_id = "installation-1"
+        });
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AccountServiceDbContext>();
+
+        var tokens = await db.AccountPushTokens
+            .Where(x => x.AccountId == userId)
+            .ToListAsync();
+
+        Assert.Single(tokens);
+        Assert.Equal("fcm-token-2", tokens[0].FcmToken);
+        Assert.Equal("android", tokens[0].Platform);
+        Assert.Equal("installation-1", tokens[0].DeviceId);
+        Assert.True(tokens[0].IsActive);
+        Assert.NotNull(tokens[0].LastSeenAt);
     }
 
     private HttpClient CreateClientForUser(
@@ -102,14 +126,5 @@ public class AccountsApiTests(AccountServiceApiFactory factory) : IClassFixture<
         return client;
     }
 
-    private sealed record AccountProfileResponse(
-        string Id,
-        string Username,
-        string? Email,
-        string? FullName,
-        string? DisplayName,
-        string? PreferredStoreId,
-        decimal ShoppingRadiusKm,
-        DateTime CreatedAt,
-        DateTime UpdatedAt);
+    private sealed record FavoriteProductResponse(string ProductId);
 }

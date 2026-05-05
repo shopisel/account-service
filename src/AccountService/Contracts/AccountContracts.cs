@@ -1,17 +1,13 @@
 namespace AccountService.Contracts;
 
-public sealed record UpdateAccountProfileRequest(
-    string? DisplayName,
-    string? PreferredStoreId,
-    decimal? ShoppingRadiusKm);
+using System.Text.Json.Serialization;
 
-public sealed record AccountProfileResponse(
-    string Id,
-    string Username,
-    string? Email,
-    string? FullName,
-    string? DisplayName,
-    string? PreferredStoreId,
-    decimal ShoppingRadiusKm,
-    DateTime CreatedAt,
-    DateTime UpdatedAt);
+public record FavoriteProductResponse(string ProductId);
+
+public record FavoriteProductRequest(string ProductId);
+
+public sealed record PushTokenUpsertRequest(
+    [property: JsonPropertyName("fcm_token")] string FcmToken,
+    [property: JsonPropertyName("platform")] string Platform,
+    [property: JsonPropertyName("device_id")] string? DeviceId
+);
