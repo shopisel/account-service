@@ -23,3 +23,11 @@ Definir:
 dotnet restore src
 dotnet test src
 ```
+
+## Deploy
+
+No `main`, este repositorio:
+
+- valida o codigo com build, testes e SonarCloud
+- publica a imagem Docker em `ghcr.io/shopisel/account-service`
+- faz deploy no Fly.io usando a imagem gerada nesse commit
